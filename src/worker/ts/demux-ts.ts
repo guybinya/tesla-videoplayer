@@ -82,6 +82,7 @@ function firstMbInSliceIsZero(nalu: Uint8Array): boolean {
   } catch { return false; }
 }
 import { adtsToRaw, getAdtsInfo, extractASC } from '../bsf/aac-adts-raw';
+import { nextPtsWrapOffset } from './pts';
 // MPEG-TS Demuxer (主流程骨�?
 // 负责遍历 TS 包、校验同步字节、解�?PID、拼�?PES、提�?PTS/DTS，输出音视频 ES
 
@@ -115,21 +116,14 @@ export function demuxTS(buffer: ArrayBuffer): TSSample[] {
   const pesPts: Record<number, number> = {};
   // PTS unwrap（按 PID 独立，避免音视频互相干扰�?
   const PTS_MOD = 0x200000000; // 2^33
+  // Wrap-unwrap math lives in ./pts (see nextPtsWrapOffset for the 32-bit gotcha).
   const wrapOffsetMap: Record<number, number> = {};
   const lastPtsModMap: Record<number, number> = {};
   // optional: track last PCR in us for potential alignment
   let lastPcrUs: number | undefined = undefined;
   let haveSentKey = false; // 仅在见到首个关键帧后再开始输出视频样�?
   function unwrapPts(pid: number, v: number): number {
-    const lastPtsMod = lastPtsModMap[pid];
-    let wrapOffset = wrapOffsetMap[pid] || 0;
-    if (lastPtsMod !== undefined) {
-      if (v < lastPtsMod && (lastPtsMod - v) > (PTS_MOD >> 1)) {
-        wrapOffset += PTS_MOD;
-      } else if (v > lastPtsMod && (v - lastPtsMod) > (PTS_MOD >> 1)) {
-        wrapOffset -= PTS_MOD;
-      }
-    }
+    const wrapOffset = nextPtsWrapOffset(lastPtsModMap[pid], wrapOffsetMap[pid] || 0, v);
     lastPtsModMap[pid] = v;
     wrapOffsetMap[pid] = wrapOffset;
     return v + wrapOffset;

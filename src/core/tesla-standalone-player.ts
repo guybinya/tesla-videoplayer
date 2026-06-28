@@ -60,17 +60,22 @@ export class TeslaStandalonePlayer {
   };
 
   constructor(private options: TeslaStandalonePlayerOptions) {
-    this.canvas = document.createElement('canvas');
-    this.canvas.style.width = '100%';
-    this.canvas.style.height = '100%';
-    this.canvas.style.display = 'block';
-    this.canvas.style.objectFit = 'contain';
-    this.canvas.style.background = '#000';
+    this.canvas = this.createCanvas();
     options.container.appendChild(this.canvas);
     this.updateSettings(options);
     this.renderer = this.createRenderer(options.renderer || 'webgl');
     this.stats.patch({ rendererType: this.renderer.type });
     this.guard.start(count => this.fail(new Error(`video elements are forbidden, found ${count}.`)));
+  }
+
+  private createCanvas(): HTMLCanvasElement {
+    const canvas = document.createElement('canvas');
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.style.display = 'block';
+    canvas.style.objectFit = this.settings.fitMode === 'fill' ? 'fill' : this.settings.fitMode;
+    canvas.style.background = '#000';
+    return canvas;
   }
 
   on = this.events.on.bind(this.events);
@@ -174,7 +179,16 @@ export class TeslaStandalonePlayer {
   }
 
   setRenderer(type: 'canvas2d' | 'webgl'): void {
+    if (type === this.renderer.type) return;
     this.renderer.destroy();
+    // A canvas element is permanently bound to its first context type, so a
+    // WebGL canvas can never hand back a 2D context (and vice versa). Swap in a
+    // fresh canvas element when the renderer type changes.
+    const next = this.createCanvas();
+    next.width = this.canvas.width;
+    next.height = this.canvas.height;
+    this.canvas.replaceWith(next);
+    this.canvas = next;
     this.renderer = this.createRenderer(type);
     this.stats.patch({ rendererType: this.renderer.type });
   }
@@ -261,7 +275,12 @@ export class TeslaStandalonePlayer {
     this.stats.markDecoded();
     this.renderQueue.push({ frame, timestamp });
     this.renderQueue.sort((a, b) => a.timestamp - b.timestamp);
-    while (this.renderQueue.length > 180) {
+    // Safety ceiling only. The buffer is normally bounded by throttling decode
+    // (see decodeTick); we must NOT drop not-yet-displayed frames as a matter of
+    // course, or playback starves. This guards against runaway memory if decode
+    // output ever outruns the throttle (e.g. a burst of in-flight frames).
+    const hardCap = this.settings.maxRenderQueue + 60;
+    while (this.renderQueue.length > hardCap) {
       const old = this.renderQueue.shift();
       try { old?.frame.close(); } catch {}
       this.videoQueueLength = Math.max(0, this.videoQueueLength - 1);
@@ -298,8 +317,11 @@ export class TeslaStandalonePlayer {
     this.decodePumpId = undefined;
     if (this.stopped || !this.videoConfigured) return;
 
+    // Throttle decode to the configured buffer depth. This is the backpressure
+    // that bounds the render queue, so the render loop never has to discard
+    // frames that haven't been shown yet.
     let budget = this.settings.decodeBatchSize;
-    while (budget > 0 && this.pendingVideoSamples.length > 0 && this.renderQueue.length < 150) {
+    while (budget > 0 && this.pendingVideoSamples.length > 0 && this.renderQueue.length < this.settings.maxRenderQueue) {
       const sample = this.pendingVideoSamples.shift()!;
       this.decoder?.decodeVideo(sample);
       budget -= 1;
@@ -330,14 +352,14 @@ export class TeslaStandalonePlayer {
       }
     }
 
-    while (this.renderQueue.length > this.settings.maxRenderQueue) {
-      const old = this.renderQueue.shift();
-      try { old?.frame.close(); } catch {}
-        this.videoQueueLength = Math.max(0, this.videoQueueLength - 1);
-        this.stats.markDropped();
-    }
+    // The render queue is bounded by decode throttling (decodeTick), not by
+    // dropping queued frames here — dropping the oldest (next-to-display) frame
+    // would starve playback. Only genuinely-late frames are dropped, above.
 
     if (this.renderQueue.length > 0) this.ensureRenderLoop();
+    // Decoded frames may still be pending while the queue drains; keep the pump
+    // alive so throttled decoding resumes as soon as there is buffer headroom.
+    if (this.pendingVideoSamples.length > 0) this.ensureDecodePump();
   }
 
   private videoDelayMs(timestamp: number): number {
