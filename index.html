@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <meta name="theme-color" content="#0b0b10" />
+    <title>Tesla VideoPlayer — WebCodecs Demo</title>
+    <style>
+      :root {
+        --bg: #0b0b10;
+        --surface: #14141c;
+        --border: #262633;
+        --fg: #f4f4f5;
+        --muted: #a1a1aa;
+        --accent: #e11d2a;
+      }
+      * { box-sizing: border-box; }
+      html { background: var(--bg); }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background: var(--bg);
+        color: var(--fg);
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+      }
+      header {
+        padding: 20px 16px 8px;
+        max-width: 1100px;
+        margin: 0 auto;
+      }
+      header h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+      header p { color: var(--muted); font-size: 14px; margin: 6px 0 0; max-width: 70ch; }
+      main {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 12px 16px 48px;
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 16px;
+      }
+      @media (min-width: 900px) {
+        main { grid-template-columns: minmax(0, 1fr) 320px; align-items: start; }
+      }
+      .viewer { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+      #stage {
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        background: #000;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+      .urlbar { display: flex; gap: 8px; flex-wrap: wrap; }
+      .urlbar input {
+        flex: 1 1 240px;
+        min-width: 0;
+        font-size: 16px;
+        padding: 12px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--fg);
+      }
+      .controls { display: flex; gap: 8px; flex-wrap: wrap; }
+      button {
+        appearance: none;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--fg);
+        padding: 12px 16px;
+        min-height: 44px;
+        border-radius: 10px;
+        font-size: 15px;
+        cursor: pointer;
+      }
+      button:hover { border-color: var(--muted); }
+      button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+      .panel {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0; }
+      label { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; font-size: 14px; }
+      select, input[type="range"] {
+        font: inherit;
+        padding: 8px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--fg);
+        min-height: 40px;
+      }
+      .metric { display: flex; justify-content: space-between; font-size: 14px; }
+      .metric strong { font-variant-numeric: tabular-nums; }
+      pre {
+        margin: 0;
+        max-height: 180px;
+        overflow: auto;
+        padding: 10px;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        font-size: 12px;
+        white-space: pre-wrap;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Tesla VideoPlayer</h1>
+      <p>
+        A no-&lt;video&gt;/no-MSE playback core: demux in a Worker, decode with WebCodecs, render to
+        Canvas/WebGL, and sync with WebAudio. Enter an HLS or HTTP-FLV URL and press Play.
+        Requires a Chromium-based browser with WebCodecs.
+      </p>
+    </header>
+    <main>
+      <section class="viewer">
+        <div id="stage" aria-label="Video render surface"></div>
+        <div class="urlbar">
+          <input id="url" placeholder="HLS (.m3u8) or HTTP-FLV (.flv) URL" inputmode="url" />
+          <button id="demo" type="button">Load sample</button>
+        </div>
+        <div class="controls">
+          <button id="play" class="primary" type="button">Play</button>
+          <button id="pause" type="button">Pause</button>
+          <button id="stop" type="button">Stop</button>
+        </div>
+      </section>
+      <aside class="panel">
+        <h2>Display</h2>
+        <label>Renderer
+          <select id="renderer">
+            <option value="webgl">WebGL</option>
+            <option value="canvas2d">Canvas 2D</option>
+          </select>
+        </label>
+        <label>Fit mode
+          <select id="fitMode">
+            <option value="contain">Contain</option>
+            <option value="cover">Cover</option>
+            <option value="fill">Fill</option>
+          </select>
+        </label>
+        <h2>Audio</h2>
+        <label>Volume
+          <input id="volume" type="range" min="0" max="1" step="0.01" value="1" />
+        </label>
+        <h2>Status</h2>
+        <div class="metric">State <strong id="state">idle</strong></div>
+        <pre id="stats">{}</pre>
+        <pre id="log"></pre>
+      </aside>
+    </main>
+    <script type="module" src="/app-src/main.ts"></script>
+  </body>
+</html>
